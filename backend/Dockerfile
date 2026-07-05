@@ -2,22 +2,24 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# 安装系统依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+# 设置 pip 镜像源
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 复制依赖文件
 COPY pyproject.toml .
 
 # 安装 Python 依赖
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e . || pip install --no-cache-dir .
 
-# 复制源代码
+# 复制源代码和配置
 COPY src/ ./src/
+COPY langgraph.json .
 
 # 创建必要目录
 RUN mkdir -p uploads logs
+
+# 设置 Python 路径
+ENV PYTHONPATH=/app/src
 
 # 暴露端口
 EXPOSE 2024
