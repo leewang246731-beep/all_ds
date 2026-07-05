@@ -430,3 +430,113 @@ async def stream_research(task_id: str, request: Request):
             "X-Accel-Buffering": "no",  # 禁用 nginx 缓冲
         },
     )
+
+
+# ── 历史聊天记录 API ─────────────────────────────────────────────
+
+@app.get("/api/history")
+async def get_history(request: Request):
+    """获取当前用户的聊天历史记录列表"""
+    user_id: int = getattr(request.state, "user_id", 0)
+
+    try:
+        from agent.db.engine import get_session_factory
+        from agent.db.models import UserThread
+        from sqlalchemy import select, desc
+
+        async with get_session_factory()() as session:
+            result = await session.execute(
+                select(UserThread)
+                .where(UserThread.user_id == user_id)
+                .order_by(desc(UserThread.created_at))
+                .limit(50)
+            )
+            threads = result.scalars().all()
+
+            history = [
+                {
+                    "thread_id": t.thread_id,
+                    "title": t.title or "未命名研究",
+                    "created_at": t.created_at.isoformat() if t.created_at else None,
+                }
+                for t in threads
+            ]
+
+            return JSONResponse(content={"history": history, "total": len(history)})
+    except Exception as exc:
+        logger.warning(f"[History] 获取历史记录失败 ({type(exc).__name__}): {exc}")
+        return JSONResponse(content={"history": [], "total": 0})
+
+
+@app.delete("/api/history/{thread_id}")
+async def delete_history(thread_id: str, request: Request):
+    """删除指定聊天历史记录"""
+    user_id: int = getattr(request.state, "user_id", 0)
+
+    try:
+        from agent.db.engine import get_session_factory
+        from agent.db.models import UserThread
+        from sqlalchemy import delete
+
+        async with get_session_factory()() as session:
+            await session.execute(
+                delete(UserThread).where(
+                    UserThread.user_id == user_id,
+                    UserThread.thread_id == thread_id,
+                )
+            )
+            await session.commit()
+
+            return JSONResponse(content={"message": "已删除"})
+    except Exception as exc:
+        logger.warning(f"[History] 删除历史记录失败 ({type(exc).__name__}): {exc}")
+        return JSONResponse(content={"error": "删除失败"}, status_code=500)
+
+
+@app.get("/api/history/{thread_id}/messages")
+async def get_thread_messages(thread_id: str, request: Request):
+    """获取指定对话的消息历史"""
+    user_id: int = getattr(request.state, "user_id", 0)
+
+    try:
+        from agent.db.engine import get_session_factory
+        from agent.db.models import UserThread
+        from sqlalchemy import select
+
+        # 验证用户有权访问此对话
+        async with get_session_factory()() as session:
+            result = await session.execute(
+                select(UserThread).where(
+                    UserThread.user_id == user_id,
+                    UserThread.thread_id == thread_id,
+                )
+            )
+            thread = result.scalar_one_or_none()
+            if not thread:
+                return JSONResponse(content={"error": "对话不存在"}, status_code=404)
+
+        # 从 Redis 获取对话消息（存储在 research:thread_messages:{thread_id}）
+        import redis.asyncio as redis_lib
+        import json as json_lib
+
+        r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+        messages_key = f"research:thread_messages:{thread_id}"
+        messages_data = await r.get(messages_key)
+
+        if messages_data:
+            messages = json_lib.loads(messages_data)
+            return JSONResponse(content={
+                "thread_id": thread_id,
+                "title": thread.title or "未命名研究",
+                "messages": messages,
+            })
+
+        # 如果没有存储的消息，返回空列表
+        return JSONResponse(content={
+            "thread_id": thread_id,
+            "title": thread.title or "未命名研究",
+            "messages": [],
+        })
+    except Exception as exc:
+        logger.warning(f"[History] 获取对话消息失败 ({type(exc).__name__}): {exc}")
+        return JSONResponse(content={"error": "获取失败"}, status_code=500)

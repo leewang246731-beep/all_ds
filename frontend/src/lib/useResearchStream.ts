@@ -26,6 +26,10 @@ interface UseResearchStreamReturn {
   streamingContent: string;
   submit: (input: string, effort: string, model: string, extra?: { plan?: string; planStatus?: string }, files?: Array<{id: number, title: string}>) => Promise<void>;
   stop: () => void;
+  /** 加载历史消息并设置 thread_id */
+  loadMessages: (threadId: string, messages: any[]) => void;
+  /** 获取当前 thread_id */
+  getCurrentThreadId: () => string;
 }
 
 export function useResearchStream(): UseResearchStreamReturn {
@@ -239,5 +243,22 @@ export function useResearchStream(): UseResearchStreamReturn {
     _resetStreaming();
   }, [_resetStreaming]);
 
-  return { events, messages, isLoading, streamingNode, streamingContent, submit, stop };
+  const loadMessages = useCallback((threadId: string, historyMessages: any[]) => {
+    // 设置 task_id，确保后续提交复用同一个对话
+    taskIdRef.current = threadId;
+
+    // 将历史消息加载到 messages 状态中
+    const formattedMessages = historyMessages.map((msg) => ({
+      type: msg.type,
+      content: msg.content,
+      id: msg.id || String(Date.now() + Math.random()),
+    }));
+    setMessages(formattedMessages);
+  }, []);
+
+  const getCurrentThreadId = useCallback(() => {
+    return taskIdRef.current;
+  }, []);
+
+  return { events, messages, isLoading, streamingNode, streamingContent, submit, stop, loadMessages, getCurrentThreadId };
 }

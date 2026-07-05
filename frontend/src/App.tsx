@@ -7,7 +7,10 @@ import { WelcomeScreen } from "@/components/WelcomeScreen";
 import { ChatMessagesView } from "@/components/ChatMessagesView";
 import { ResearchStreamChatView } from "@/components/ResearchStreamChatView";
 import { KnowledgeBase } from "@/components/KnowledgeBase";
+import { HistorySidebar } from "@/components/HistorySidebar";
+import { ParticleBackground } from "@/components/ParticleBackground";
 import { Button } from "@/components/ui/button";
+import { Database, X } from "lucide-react";
 
 export default function App() {
   const [processedEventsTimeline, setProcessedEventsTimeline] = useState<
@@ -23,6 +26,8 @@ export default function App() {
   const [savedEffort, setSavedEffort] = useState("medium");
   const [savedModel, setSavedModel] = useState("qwen-plus-latest");
   const [showKnowledgeBase, setShowKnowledgeBase] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
   const thread = useStream<{
     messages: Message[];
     initial_search_query_count: number;
@@ -243,19 +248,64 @@ export default function App() {
     window.location.reload();
   }, [thread]);
 
+  const handleNewChat = useCallback(() => {
+    setCurrentThreadId(null);
+    setProcessedEventsTimeline([]);
+    setHistoricalActivities({});
+    setError(null);
+    window.location.reload();
+  }, []);
+
+  const handleSelectThread = useCallback(async (threadId: string) => {
+    setCurrentThreadId(threadId);
+    setProcessedEventsTimeline([]);
+    setHistoricalActivities({});
+
+    // 从后端加载对话消息
+    try {
+      const res = await fetch(`/api/history/${threadId}/messages`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.messages && data.messages.length > 0) {
+          // 将历史消息加载到 researchStream 中，并设置 thread_id
+          researchStream.loadMessages(threadId, data.messages);
+        } else {
+          // 没有消息时，只设置 thread_id
+          researchStream.loadMessages(threadId, []);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load thread messages:", err);
+    }
+  }, [researchStream]);
+
   return (
-    <div className="flex h-screen bg-neutral-800 text-neutral-100 font-sans antialiased">
-      <main className="h-full w-full max-w-4xl mx-auto">
-          {showKnowledgeBase ? (
-            <KnowledgeBase onBack={() => setShowKnowledgeBase(false)} />
-          ) : thread.messages.length === 0 && researchStream.messages.length === 0 ? (
-            <WelcomeScreen
-              handleSubmit={handleSubmit}
-              isLoading={thread.isLoading}
-              onCancel={handleCancel}
-              onShowKnowledgeBase={() => setShowKnowledgeBase(true)}
-            />
-          ) : thread.messages.length > 0 ? (
+    <div className="flex h-screen bg-neutral-950 text-neutral-100 font-sans antialiased overflow-hidden">
+      <ParticleBackground enabled={true} />
+
+      {/* History Sidebar */}
+      <HistorySidebar
+        onNewChat={handleNewChat}
+        onSelectThread={handleSelectThread}
+        currentThreadId={currentThreadId}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
+
+      {/* Main Content */}
+      <div className="relative z-10 flex-1 h-full overflow-hidden flex flex-col">
+        <main className="flex-1 h-full overflow-y-auto">
+          <div className="max-w-4xl mx-auto min-h-full">
+            {thread.messages.length === 0 && researchStream.messages.length === 0 ? (
+              <WelcomeScreen
+                handleSubmit={handleSubmit}
+                isLoading={thread.isLoading}
+                onCancel={handleCancel}
+                onShowKnowledgeBase={() => setShowKnowledgeBase(true)}
+              />
+            ) : thread.messages.length > 0 ? (
             error ? (
               <div className="flex flex-col items-center justify-center h-full">
                 <div className="flex flex-col items-center justify-center gap-4">
@@ -293,7 +343,47 @@ export default function App() {
               scrollAreaRef={scrollAreaRef}
             />
           )}
-      </main>
+          </div>
+        </main>
+      </div>
+
+      {/* Knowledge Base Drawer - Right Side Panel */}
+      {showKnowledgeBase && (
+        <div className="fixed inset-y-0 right-0 z-50 flex">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowKnowledgeBase(false)}
+          />
+          {/* Drawer Content */}
+          <div className="relative ml-auto w-full max-w-md h-full bg-neutral-900 border-l border-neutral-800 shadow-2xl animate-slide-in-right">
+            <div className="absolute top-3 left-3 z-10">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowKnowledgeBase(false)}
+                className="text-neutral-400 hover:text-white bg-neutral-800/80 hover:bg-neutral-700/80"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <KnowledgeBase onBack={() => setShowKnowledgeBase(false)} />
+          </div>
+        </div>
+      )}
+
+      {/* Knowledge Base Toggle Button - Fixed Position */}
+      {!showKnowledgeBase && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setShowKnowledgeBase(true)}
+          className="fixed bottom-6 right-6 z-40 w-12 h-12 rounded-full bg-[var(--color-brand)] text-white shadow-lg shadow-blue-500/25 hover:bg-[var(--color-brand-light)] hover:shadow-blue-500/40 transition-all duration-300 hover:scale-105"
+          title="企业知识库"
+        >
+          <Database className="h-5 w-5" />
+        </Button>
+      )}
     </div>
   );
 }

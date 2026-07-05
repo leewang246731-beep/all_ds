@@ -89,6 +89,22 @@ async def enqueue_task(
     r = await _get_redis()
     if not task_id:
         task_id = str(uuid.uuid4())
+
+    # 保存对话消息到 Redis（用于历史记录查看）
+    messages_key = f"research:thread_messages:{task_id}"
+    # 获取已有的消息（如果有），然后追加新消息
+    existing_messages = await r.get(messages_key)
+    if existing_messages:
+        existing_list = json.loads(existing_messages)
+        # 追加新消息（避免重复）
+        existing_ids = {m.get("id") for m in existing_list}
+        new_messages = [m for m in messages if m.get("id") not in existing_ids]
+        all_messages = existing_list + new_messages
+    else:
+        all_messages = messages
+
+    await r.set(messages_key, json.dumps(all_messages, ensure_ascii=False), ex=60 * 60 * 24 * 7)  # 7天过期
+
     task_payload = json.dumps({
         "task_id": task_id,
         "messages": messages,
