@@ -1,0 +1,31 @@
+# lwy DeepResearch (Multi-Agent) - Backend Dependencies
+# Python 3.11+ required
+
+# Core AI/LLM Framework
+langgraph>=0.2.6
+langchain-core>=0.3.19
+langgraph-sdk>=0.1.57
+langgraph-cli
+langgraph-api
+
+# LLM Provider (OpenAI-compatible API)
+openai
+
+# Web Search
+tavily-python
+
+# Web Framework
+fastapi
+
+# Utilities
+python-dotenv>=1.0.1
+pydantic>=2.0
+typing-extensions>=4.0
+loguru
+
+# Development & Testing
+mypy>=1.11.1
+ruff>=0.6.1
+pytest>=8.3.5
+pytest-asyncio>=0.24.0
+langgraph-cli[inmem]>=0.1.71
