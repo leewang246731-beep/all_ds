@@ -5,20 +5,39 @@ from loguru import logger
 
 def get_research_topic(messages: List[AnyMessage], ignore_contexts: List[str]=None) -> str:
     """
-    从messages中获取research主题。
+    从 messages 中获取 research 主题。
+
+    对于多轮对话（>= 4 条消息且含多条 AI 消息），只提取：
+      - 最近的人类消息（作为新研究方向）
+      - 首条 AI 消息的前 500 字（作为上下文摘要）
+    避免将整份第一轮报告塞入主题导致 LLM 上下文爆炸。
     """
-    # check if request has a history and combine the messages into a single string
     if not ignore_contexts:
         ignore_contexts = []
-    if len(messages) == 1:
-        research_topic = messages[-1].content
-    else:
-        research_topic = ""
-        for message in messages:
-            if isinstance(message, HumanMessage):
-                research_topic += f"User: {message.content}\n"
-            elif isinstance(message, AIMessage) and message.content not in ignore_contexts:
-                research_topic += f"Assistant: {message.content}\n"
+
+    if len(messages) <= 1:
+        return messages[-1].content if messages else ""
+
+    # 多轮对话检测：存在多条 AI 消息 → 追问/深入分析场景
+    ai_msgs = [m for m in messages if isinstance(m, AIMessage)]
+    human_msgs = [m for m in messages if isinstance(m, HumanMessage)]
+
+    if len(ai_msgs) >= 2 and len(human_msgs) >= 2:
+        # 取首条 AI 消息（plan）的前 500 字作为上下文
+        plan_summary = ai_msgs[0].content[:500] if ai_msgs else ""
+        latest_question = human_msgs[-1].content
+
+        topic = f"之前的研究计划摘要：{plan_summary}\n\n"
+        topic += f"用户当前的研究问题：{latest_question}"
+        return topic
+
+    # 单轮场景：拼接全部消息
+    research_topic = ""
+    for message in messages:
+        if isinstance(message, HumanMessage):
+            research_topic += f"User: {message.content}\n"
+        elif isinstance(message, AIMessage) and message.content not in ignore_contexts:
+            research_topic += f"Assistant: {message.content}\n"
     return research_topic
 
 def get_last_user_response(messages: List[AnyMessage]) -> str:

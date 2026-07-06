@@ -17,6 +17,7 @@ from agent.auth.middleware import AuthMiddleware
 from agent.auth.routes import router as auth_router
 
 # 文件上传配置
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "uploads")
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".md", ".txt", ".csv"}
@@ -411,12 +412,12 @@ async def stream_research(task_id: str, request: Request):
 
     客户端断开后可用 Last-Event-ID header 重连，不会丢失中间事件。
     """
-    last_event_id = request.headers.get("Last-Event-ID", "0")
+    last_event_id = request.headers.get("Last-Event-ID") or request.query_params.get("last_event_id", "0")
 
     async def event_generator():
         try:
-            async for event_str in read_task_events(task_id, last_event_id):
-                yield f"data: {event_str}\n\n"
+            async for event_id, event_str in read_task_events(task_id, last_event_id):
+                yield f"id: {event_id}\ndata: {event_str}\n\n"
         except Exception as exc:
             logger.warning(f"[TaskQueue] SSE 推送异常 ({type(exc).__name__}): {exc}")
             yield f"data: {{\"error\": \"{exc}\"}}\n\n"

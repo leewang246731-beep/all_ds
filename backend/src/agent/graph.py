@@ -131,6 +131,16 @@ async def confirm_plan(state: OverallState, config: RunnableConfig) -> dict:
         logger.info("[MainGraph] plan explicitly confirmed → research")
         return {"fresh_level": "medium"}
 
+    # 多轮对话：如果已有 AI 产出（plan + 之前的研究结果），
+    # 说明这是基于第一轮报告的追问/深入分析，直接进入研究阶段
+    ai_msgs = [m for m in state["messages"] if isinstance(m, AIMessage)]
+    if len(ai_msgs) > 1:
+        logger.info(
+            f"[MainGraph] 检测到多轮对话（{len(ai_msgs)} 条 AI 消息），"
+            f"直接进入研究阶段"
+        )
+        return {"fresh_level": "medium"}
+
     agent = JsonAgent(model_id=configurable.query_generator_model, keys=PlanReflection)
     agent.set_step_prompt(plan_reflection_instructions)
     result = await agent.astep(

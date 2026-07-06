@@ -42,6 +42,7 @@ export function useResearchStream(): UseResearchStreamReturn {
   const messageIdCounter = useRef(0);
   const planRef = useRef("");  // 缓存 generate_plan 中的计划内容
   const taskIdRef = useRef<string>("");  // 保存首次任务响应的 task_id，后续提交复用
+  const lastEventIdRef = useRef<string>("0");  // SSE 事件游标，用于多轮对话跳过历史事件
 
   // 流式状态 refs（避免闭包过期问题）
   const streamingNodeRef = useRef<string | null>(null);
@@ -67,10 +68,11 @@ export function useResearchStream(): UseResearchStreamReturn {
       planRef.current = "";
       _resetStreaming();
 
-      // 首次提交时清空 taskIdRef，让后端生成新 task_id
+      // 首次提交时清空 taskIdRef 和 SSE 游标，让后端生成新 task_id
       const isFirstSubmit = messages.length === 0;
       if (isFirstSubmit) {
         taskIdRef.current = "";
+        lastEventIdRef.current = "0";
       }
 
       const humanMsg = {
@@ -136,12 +138,18 @@ export function useResearchStream(): UseResearchStreamReturn {
           taskIdRef.current = task_id;
         }
 
-        // 2. 建立 SSE 连接接收事件
-        const es = new EventSource(`${API_BASE_URL}${stream_url}`);
+        // 2. 建立 SSE 连接接收事件（携带 last_event_id 跳过上轮历史事件）
+        const separator = stream_url.includes("?") ? "&" : "?";
+        const sseUrl = `${API_BASE_URL}${stream_url}${separator}last_event_id=${lastEventIdRef.current}`;
+        const es = new EventSource(sseUrl);
         eventSourceRef.current = es;
 
         es.onmessage = (e) => {
           try {
+            // 更新 SSE 游标，下轮 submit 时跳过已消费的事件
+            if (e.lastEventId) {
+              lastEventIdRef.current = e.lastEventId;
+            }
             const raw = JSON.parse(e.data);
 
             // ── 处理 token 流式事件 ──────────────────────────
@@ -246,6 +254,8 @@ export function useResearchStream(): UseResearchStreamReturn {
   const loadMessages = useCallback((threadId: string, historyMessages: any[]) => {
     // 设置 task_id，确保后续提交复用同一个对话
     taskIdRef.current = threadId;
+    // 重置 SSE 游标（历史对话的事件流已过期）
+    lastEventIdRef.current = "0";
 
     // 将历史消息加载到 messages 状态中
     const formattedMessages = historyMessages.map((msg) => ({

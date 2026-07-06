@@ -303,6 +303,36 @@ async def _process_one_task(r: redis.Redis) -> None:
                 maxlen=EVENT_STREAM_MAXLEN,
             )
 
+        # ── 将最终消息状态写回 Redis，供历史记录查看 ──
+        try:
+            state_snapshot = await persistent_graph.aget_state(config)
+            if state_snapshot and state_snapshot.values:
+                snapshot_msgs = state_snapshot.values.get("messages", [])
+                serialized = []
+                for m in snapshot_msgs:
+                    msg_type = getattr(m, "type", None)
+                    msg_content = getattr(m, "content", "")
+                    msg_id = getattr(m, "id", None)
+                    if msg_type in ("human", "ai") and msg_content:
+                        serialized.append({
+                            "type": msg_type,
+                            "content": msg_content,
+                            "id": str(msg_id) if msg_id else None,
+                        })
+                if serialized:
+                    messages_key = f"research:thread_messages:{task_id}"
+                    await r.set(
+                        messages_key,
+                        json.dumps(serialized, ensure_ascii=False),
+                        ex=60 * 60 * 24 * 7,
+                    )
+                    logger.info(
+                        f"[TaskQueue] 已将 {len(serialized)} 条消息写回 Redis "
+                        f"(task_id={task_id[:8]}...)"
+                    )
+        except Exception as exc:
+            logger.warning(f"[TaskQueue] 写回消息快照失败 ({type(exc).__name__}): {exc}")
+
     except Exception as exc:
         logger.error(f"[TaskQueue] 任务失败 task_id={task_id[:8]}... ({type(exc).__name__}): {exc}")
         # 将错误作为事件推送给前端
@@ -327,8 +357,8 @@ async def _process_one_task(r: redis.Redis) -> None:
 async def read_task_events(task_id: str, last_event_id: str = "0"):
     """Generator: 从 Redis Stream 读取任务事件，用于 SSE 推送。
 
-    支持断线重连：客户端通过 SSE 的 Last-Event-ID header 传入 last_event_id，
-    服务端从该 ID 之后开始推送。
+    支持断线重连：客户端通过 Last-Event-ID header 或 ?last_event_id= 查询参数
+    传入上次消费到的 ID，服务端从该 ID 之后开始推送（excl）。
     """
     r = await _get_redis()
     stream_key = f"{EVENT_STREAM_PREFIX}:{task_id}"
@@ -346,7 +376,7 @@ async def read_task_events(task_id: str, last_event_id: str = "0"):
                     for msg_id, data in messages:
                         event_str = data.get("event", "{}")
                         current_id = msg_id
-                        yield event_str
+                        yield (msg_id, event_str)
 
                         # 检查是否为终止事件（错误 / finalize_answer / task_paused）
                         try:

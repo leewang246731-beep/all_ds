@@ -22,6 +22,7 @@ interface HistorySidebarProps {
   currentThreadId: string | null;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  refreshKey?: number;
 }
 
 export function HistorySidebar({
@@ -30,6 +31,7 @@ export function HistorySidebar({
   currentThreadId,
   isCollapsed,
   onToggleCollapse,
+  refreshKey,
 }: HistorySidebarProps) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,6 +55,13 @@ export function HistorySidebar({
   useEffect(() => {
     fetchHistory();
   }, []);
+
+  // 当消息数量变化时刷新历史列表（新对话完成后自动更新）
+  useEffect(() => {
+    if (refreshKey !== undefined && refreshKey > 0) {
+      fetchHistory();
+    }
+  }, [refreshKey]);
 
   const handleDelete = async (threadId: string, e: React.MouseEvent) => {
     e.stopPropagation();

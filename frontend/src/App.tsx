@@ -185,8 +185,9 @@ export default function App() {
       if (researchStream.messages.length > 0
           && (submittedInputValue.includes("需求确认") || submittedInputValue.includes("开始研究"))
           && researchStream.messages.some(m => m.type === "ai")) {
-        const lastAiMsg = [...researchStream.messages].reverse().find(m => m.type === "ai");
-        const planContent = lastAiMsg?.content || "";
+        // 取第一条 AI 消息 = generate_plan 生成的原始计划（非 finalize_answer 报告）
+        const planMsg = researchStream.messages.find(m => m.type === "ai");
+        const planContent = planMsg?.content || "";
         researchStream.submit(submittedInputValue, savedEffort, savedModel, {
           plan: planContent,
           planStatus: "confirmed",
@@ -196,8 +197,9 @@ export default function App() {
 
       // 场景 3: 后续追问/需求补充 → 传递已有 plan + confirmed，跳过 generate_plan，进入 confirm_plan 评估
       if (researchStream.messages.length > 0) {
-        const lastAiMsg = [...researchStream.messages].reverse().find(m => m.type === "ai");
-        const planContent = lastAiMsg?.content || "";
+        // 取第一条 AI 消息 = generate_plan 生成的原始计划（非 finalize_answer 报告）
+        const planMsg = researchStream.messages.find(m => m.type === "ai");
+        const planContent = planMsg?.content || "";
         researchStream.submit(submittedInputValue, savedEffort, savedModel, {
           plan: planContent,
           planStatus: "confirmed",
@@ -260,6 +262,9 @@ export default function App() {
     setCurrentThreadId(threadId);
     setProcessedEventsTimeline([]);
     setHistoricalActivities({});
+    // 设置默认 effort/model，确保后续追问能正常提交
+    setSavedEffort("medium");
+    setSavedModel("qwen3.7-plus");
 
     // 从后端加载对话消息
     try {
@@ -292,20 +297,21 @@ export default function App() {
         currentThreadId={currentThreadId}
         isCollapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        refreshKey={researchStream.messages.length}
       />
 
       {/* Main Content */}
       <div className="relative z-10 flex-1 h-full overflow-hidden flex flex-col">
         <main className="flex-1 h-full overflow-y-auto">
           <div className="max-w-4xl mx-auto min-h-full">
-            {thread.messages.length === 0 && researchStream.messages.length === 0 ? (
+            {thread.messages.length === 0 && researchStream.messages.length === 0 && !currentThreadId ? (
               <WelcomeScreen
                 handleSubmit={handleSubmit}
                 isLoading={thread.isLoading}
                 onCancel={handleCancel}
                 onShowKnowledgeBase={() => setShowKnowledgeBase(true)}
               />
-            ) : thread.messages.length > 0 ? (
+            ) : thread.messages.length > 0 && !currentThreadId ? (
             error ? (
               <div className="flex flex-col items-center justify-center h-full">
                 <div className="flex flex-col items-center justify-center gap-4">
